@@ -1,0 +1,168 @@
+import sqlite3
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+class UniversityDatabase:
+    def __init__(self, db_name="university.db"):
+        self.conn = sqlite3.connect(db_name)
+        self.cursor = self.conn.cursor()
+        self.create_table()
+
+    def create_table(self):
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                major TEXT NOT NULL,
+                gpa REAL NOT NULL
+            )
+        ''')
+        self.conn.commit()
+
+    def insert_student(self, name, major, gpa):
+        self.cursor.execute('INSERT INTO students (name, major, gpa) VALUES (?, ?, ?)', (name, major, gpa))
+        self.conn.commit()
+
+    def insert_many(self, data):
+        self.cursor.executemany('INSERT INTO students (name, major, gpa) VALUES (?, ?, ?)', data)
+        self.conn.commit()
+
+    def get_all_students(self):
+        self.cursor.execute('SELECT * FROM students')
+        return self.cursor.fetchall()
+
+    def get_high_gpa_students(self, threshold=3.0):
+        self.cursor.execute('SELECT * FROM students WHERE gpa > ?', (threshold,))
+        return self.cursor.fetchall()
+
+    def update_student_gpa(self, student_id, new_gpa):
+        self.cursor.execute('UPDATE students SET gpa = ? WHERE id = ?', (new_gpa, student_id))
+        self.conn.commit()
+
+    def delete_low_gpa_students(self, threshold=2.0):
+        self.cursor.execute('DELETE FROM students WHERE gpa < ?', (threshold,))
+        count = self.cursor.rowcount
+        self.conn.commit()
+        return count
+
+class App:
+    def __init__(self, root):
+        self.db = UniversityDatabase()
+        self.root = root
+        self.root.title("Phần Mềm Quản Lý Sinh Viên")
+        self.root.geometry("800x450")
+
+        frame_input = tk.Frame(root)
+        frame_input.pack(pady=15)
+
+        tk.Label(frame_input, text="Họ và Tên:").grid(row=0, column=0, padx=5)
+        self.ent_name = tk.Entry(frame_input, width=20)
+        self.ent_name.grid(row=0, column=1, padx=5)
+
+        tk.Label(frame_input, text="Ngành:").grid(row=0, column=2, padx=5)
+        self.ent_major = tk.Entry(frame_input, width=20)
+        self.ent_major.grid(row=0, column=3, padx=5)
+
+        tk.Label(frame_input, text="GPA:").grid(row=0, column=4, padx=5)
+        self.ent_gpa = tk.Entry(frame_input, width=10)
+        self.ent_gpa.grid(row=0, column=5, padx=5)
+
+        frame_btn = tk.Frame(root)
+        frame_btn.pack(pady=5)
+
+        tk.Button(frame_btn, text="Thêm 5 SV Mẫu", command=self.add_sample).grid(row=0, column=0, padx=5)
+        tk.Button(frame_btn, text="Thêm SV", command=self.add_student).grid(row=0, column=1, padx=5)
+        tk.Button(frame_btn, text="Xem Tất Cả", command=self.load_all).grid(row=0, column=2, padx=5)
+        tk.Button(frame_btn, text="Lọc GPA > 3.0", command=self.load_high).grid(row=0, column=3, padx=5)
+        tk.Button(frame_btn, text="Cập nhật GPA", command=self.update_gpa).grid(row=0, column=4, padx=5)
+        tk.Button(frame_btn, text="Xóa GPA < 2.0", command=self.delete_low).grid(row=0, column=5, padx=5)
+
+        columns = ("id", "name", "major", "gpa")
+        self.tree = ttk.Treeview(root, columns=columns, show="headings")
+        self.tree.heading("id", text="ID")
+        self.tree.heading("name", text="Họ và Tên")
+        self.tree.heading("major", text="Chuyên ngành")
+        self.tree.heading("gpa", text="GPA")
+        self.tree.column("id", width=50, anchor=tk.CENTER)
+        self.tree.column("gpa", width=50, anchor=tk.CENTER)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        self.tree.bind("<ButtonRelease-1>", self.on_select)
+        self.selected_id = None
+        self.load_all()
+
+    def on_select(self, event):
+        selected = self.tree.focus()
+        if selected:
+            values = self.tree.item(selected, 'values')
+            self.selected_id = values[0]
+            self.ent_name.delete(0, tk.END)
+            self.ent_name.insert(0, values[1])
+            self.ent_major.delete(0, tk.END)
+            self.ent_major.insert(0, values[2])
+            self.ent_gpa.delete(0, tk.END)
+            self.ent_gpa.insert(0, values[3])
+
+    def add_sample(self):
+        sample_data = [
+            ("Nguyễn Văn A", "IT", 3.5),
+            ("Trần Thị B", "AI", 3.8),
+            ("Lê Văn C", "Data Science", 1.5),
+            ("Phạm Thị D", "Kỹ thuật phần mềm", 1.8),
+            ("Hoàng Văn E", "An toàn thông tin", 3.1)
+        ]
+        self.db.insert_many(sample_data)
+        self.load_all()
+        messagebox.showinfo("Thành công", "Đã thêm 5 sinh viên mẫu!")
+
+    def add_student(self):
+        name = self.ent_name.get()
+        major = self.ent_major.get()
+        try:
+            gpa = float(self.ent_gpa.get())
+            if name and major:
+                self.db.insert_student(name, major, gpa)
+                self.load_all()
+                self.clear_entries()
+            else:
+                messagebox.showwarning("Lỗi", "Vui lòng nhập đủ thông tin!")
+        except ValueError:
+            messagebox.showerror("Lỗi", "GPA phải là số!")
+
+    def load_all(self):
+        self.tree.delete(*self.tree.get_children())
+        for row in self.db.get_all_students():
+            self.tree.insert("", tk.END, values=row)
+
+    def load_high(self):
+        self.tree.delete(*self.tree.get_children())
+        for row in self.db.get_high_gpa_students():
+            self.tree.insert("", tk.END, values=row)
+
+    def update_gpa(self):
+        if not self.selected_id:
+            messagebox.showwarning("Lỗi", "Vui lòng chọn một sinh viên từ bảng!")
+            return
+        try:
+            new_gpa = float(self.ent_gpa.get())
+            self.db.update_student_gpa(self.selected_id, new_gpa)
+            self.load_all()
+            messagebox.showinfo("Thành công", "Đã cập nhật GPA!")
+        except ValueError:
+            messagebox.showerror("Lỗi", "GPA phải là số!")
+
+    def delete_low(self):
+        count = self.db.delete_low_gpa_students()
+        self.load_all()
+        messagebox.showinfo("Thành công", f"Đã xóa {count} sinh viên có GPA < 2.0")
+
+    def clear_entries(self):
+        self.ent_name.delete(0, tk.END)
+        self.ent_major.delete(0, tk.END)
+        self.ent_gpa.delete(0, tk.END)
+        self.selected_id = None
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = App(root)
+    root.mainloop()
